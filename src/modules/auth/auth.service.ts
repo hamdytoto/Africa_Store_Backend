@@ -1,9 +1,7 @@
 import { tokenDocument } from './../../db/models/token.model';
-import { hash } from './../../common/security/hash.util';
 import { BadRequestException, ConsoleLogger, ForbiddenException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { CreateUserDto } from '../user/dto/create-user.dto';
 import { UserService } from '../user/user.service';
-import { MailerService } from '@nestjs-modules/mailer';
 import { ConfigService } from '@nestjs/config';
 import { LoginDto } from './dto/login.dto';
 import { JwtService } from '@nestjs/jwt';
@@ -16,13 +14,13 @@ import { ResendOtpDto } from './dto/resendOtp.dto';
 import { TokenRepository } from 'src/db/repos/token.repository';
 import { TokenType } from 'src/db/enums/token.enum';
 import { ResetPasswordDto } from './dto/resetPassword.dto';
-import { ResendMailService } from '../mailer/resend-mail.service';
 import { CartRepository } from 'src/db/repos/cart.repository';
+import { MailService } from '../mail/mail.service';
 @Injectable()
 export class AuthService {
   constructor(
     private readonly _UserService: UserService,
-    private readonly _MailerService: MailerService,
+    private readonly _MailerService: MailService,
     private readonly _ConfigService: ConfigService,
     private readonly _JwtService: JwtService,
     private readonly _OtpRepository: OtpRepository,
@@ -31,40 +29,28 @@ export class AuthService {
   ) { }
   async register(data: CreateUserDto) {
     const { email } = data;
-    try {
-      const userExist = await this._UserService.userExistByEmail(email)
-      if (userExist) {
-        throw new BadRequestException("Email already exists")
-      }
-      const otp = await this._OtpRepository.findOne({ filter: { email } })
-      if (otp) await otp.deleteOne();
-      const newOtp = randomstring.generate({
-        length: 4,
-        charset: 'numeric'
-      })
-      console.log(newOtp);
-      const result = await this._MailerService.sendMail({
-        to: email,
-        subject: 'Account Activation - Africa Store',
-        html: `<p>Your OTP code is <b>${newOtp}</b></p>`,
-      });
-      // console.log(result);
-      if (!result) throw new InternalServerErrorException("Failed to send verification email");
-      const user = await this._UserService.create({ ...data });
-      const cart  = await this._CartRepository.create({ user: user._id })
-      await this._OtpRepository.create({
-        code: newOtp,
-        handle: email
-      })
-      return {
-        succes: true,
-        message: "User registered successfully and user verification sent",
-      };
-    }
-    catch (error) {
-      // console.log(error);
-      throw new InternalServerErrorException(error.message)
-    }
+
+    const userExist = await this._UserService.userExistByEmail(email);
+    if (userExist) throw new BadRequestException("Email already exists");
+
+    const otpRecord = await this._OtpRepository.findOne({ filter: { handle: email } });
+    if (otpRecord) await otpRecord.deleteOne();
+
+    const otp = randomstring.generate({ length: 4, charset: 'numeric' });
+
+    await this._MailerService.sendMail({
+      to: email,
+      subject: 'Account Activation - Africa Store',
+      html: `<p>Your OTP code is <b>${otp}</b></p>`,
+    });
+
+    await this._OtpRepository.create({
+      handle: email,
+      code: otp,      // could hash it here if using compareHash
+      userData: data  // store the data temporarily
+    });
+
+    return { success: true, message: "OTP sent to email for verification" };
   }
 
   async login(data: LoginDto) {
@@ -148,53 +134,51 @@ export class AuthService {
     }
   }
 
-  async verfiyUser(data: VerifyUserDto) {
+  async verifyUser(data: VerifyUserDto) {
     const { handle, code } = data;
-    const user = await this._UserService.userExistByEmail(handle)
-    if (!user) throw new BadRequestException("User not found")
-    if (user.accoutAcctivated) throw new BadRequestException("User already verified")
-    const otp = await this._OtpRepository.findOne({ filter: { handle } })
-    if (!otp) throw new BadRequestException("expired Otp please resend")
-    if (!compareHash(code, otp.code)) throw new BadRequestException("Invalid Otp")
-    await user.updateOne({ accoutAcctivated: true })
-    await otp.deleteOne();
-    return {
-      success: true,
-      message: "User verified successfully login to continue",
-      code: 200,
-      showToast: true,
-    }
+
+    const otpRecord = await this._OtpRepository.findOne({ filter: { handle } });
+    if (!otpRecord) throw new BadRequestException("OTP expired. Please resend.");
+    if (!compareHash(code, otpRecord.code)) throw new BadRequestException("Invalid OTP");
+
+    // Create user using stored data
+    const user = await this._UserService.create(otpRecord.userData as CreateUserDto);
+    user.accoutAcctivated = true;
+    await user.save();
+
+    // Create initial cart
+    await this._CartRepository.create({ user: user._id });
+
+    // Remove OTP record
+    await otpRecord.deleteOne();
+
+    return { success: true, message: "User verified and created successfully" };
   }
+
   async resendOtp(data: ResendOtpDto) {
     const { handle } = data;
-    const user = await this._UserService.userExistByEmail(handle)
-    if (!user) throw new BadRequestException("User not found")
-    if (user.accoutAcctivated === true) {
-      throw new BadRequestException("User already verified")
-    }
-    const otp = await this._OtpRepository.findOne({ filter: { handle } })
-    if (otp) await otp.deleteOne();
-    const newOtp = randomstring.generate({
-      length: 4,
-      charset: 'numeric'
-    })
+
+    const oldOtp = await this._OtpRepository.findOne({ filter: { handle } });
+    const userData = oldOtp?.userData; // preserve original registration data
+    if (oldOtp) await oldOtp.deleteOne();
+
+    const newOtp = randomstring.generate({ length: 4, charset: 'numeric' });
+
     await this._OtpRepository.create({
+      handle,
       code: newOtp,
-      handle
-    })
+      userData
+    });
+
     await this._MailerService.sendMail({
       to: handle,
       subject: 'Account Activation - Africa Store',
       html: `<p>Your OTP code is <b>${newOtp}</b></p>`,
     });
 
-    return {
-      success: true,
-      message: "Otp sent to email",
-      code: 200,
-      showToast: true
-    }
+    return { success: true, message: "OTP resent to email" };
   }
+
 
   async forgetPassword(data: SendOtpDto) {
     try {
@@ -271,7 +255,16 @@ export class AuthService {
     }
   }
   async validateCode(data: VerifyUserDto) {
+    const { handle, code } = data;
+    const otp = await this._OtpRepository.findOne({ filter: { handle } })
+    if (!otp) throw new BadRequestException("expired Otp please resend")
+    if (!compareHash(code, otp.code)) throw new BadRequestException("Invalid Otp")
+    return {
+      success: true,
+      message: "Otp verified successfully",
+      code: 200,
+      showToast: true
+    }
   }
-
 
 }

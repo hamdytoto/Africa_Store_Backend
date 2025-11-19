@@ -12,5 +12,5 @@ export class UpdateProductDto extends PartialType(CreateProductDto) {
     
     @IsOptional()
     @IsMongoId()
-    category: Types.ObjectId;
+    category?: Types.ObjectId;
 }

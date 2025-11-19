@@ -11,13 +11,15 @@ import { Image } from 'src/common/types/image.type';
 import slugify from 'slugify';
 import { FindProductsDto } from './dto/find-product.dto';
 import { productDocument } from 'src/db/models/product.model';
+import { StockGateway } from '../socket/stock.gateway';
 
 @Injectable()
 export class ProductService {
   constructor(private readonly _ProductRepository: ProductRepository,
     private readonly _categoryRepository: CategoryRepository,
     private readonly _fileUpload: FileUploadService,
-    private readonly _ConfigService: ConfigService
+    private readonly _ConfigService: ConfigService,
+    private readonly _StockGateway: StockGateway
 
   ) { }
   async create(
@@ -61,6 +63,18 @@ export class ProductService {
     if (updatedData.name) {
       updatedData.slug = slugify(updatedData.name);
     }
+
+    // Preserve or update category
+    if (updatedData.category) {
+      const categoryExists = await this._categoryRepository.findOne({
+        filter: { _id: updatedData.category }
+      });
+
+      if (!categoryExists) throw new NotFoundException("Category not found");
+    } else {
+      updatedData.category = product.category;
+    }
+
 
     // Handle thumbnail update
     if (files?.thumbnail?.length) {
@@ -162,7 +176,7 @@ export class ProductService {
       filter: {
         ...(query.category && { category: new Types.ObjectId(query.category) }),
         ...(query.k && {
-          $or: [{ name: { $regex: query.k, $options: 'i' } }, { description: { $regex: query.k, $options: 'i' } }]
+          $or: [{ name: { $regex: query.k, $options: 'i' } }]
         }),
         ...(query.price && {
           finalPrice: {
@@ -214,7 +228,7 @@ export class ProductService {
   }
 
   async removeProductsByCategory(categoryId: Types.ObjectId) {
-     const categoryObjectId = new Types.ObjectId(categoryId);
+    const categoryObjectId = new Types.ObjectId(categoryId);
 
     // Perform deletion
     const result = await this._ProductRepository.deleteMany({ category: categoryObjectId });
@@ -241,7 +255,7 @@ export class ProductService {
       update: { $inc: { stock: increment ? quantity : -quantity } }
     });
     //emit socket event 
+    this._StockGateway.broadcastStockUpdate(product!._id, product!.stock);
     return product;
-
   }
 }

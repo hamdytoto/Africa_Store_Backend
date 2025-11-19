@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+
 // import { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
@@ -9,10 +10,11 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { SuccessResponseInterceptor } from './common/interceptors/success-response.interceptor';
 import { ErrorHandlerInterceptor } from './common/interceptors/error-handler.interceptor';
 import { NestExpressApplication } from '@nestjs/platform-express';
-
+import express from 'express';
 async function bootstrap() {
   // const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.use('/order/webhook',express.raw({ type: 'application/json' }));
   app.set("query parser", "extended");
   app.enableCors();
   app.useGlobalPipes(new ValidationPipe({

@@ -1,5 +1,5 @@
 import { ObjectId, Types } from 'mongoose';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Type } from '@nestjs/common';
 import { AddToCartDto } from './dto/add-to-cart.dto';
 import { UpdateCartDto } from './dto/update-cart.dto';
 import { CartRepository } from 'src/db/repos/cart.repository';
@@ -18,29 +18,39 @@ export class CartService {
     const product = await this._productService.checkProductExists(productId);
     const instock = this._productService.instock(product, quantity);
     if (!instock) throw new BadRequestException('Product not in stock');
-    // Check if user already has a cart
-    const existingCart = await this._cartRepository.findOne({ filter: { user: userId } });
+
+    const existingCart = await this._cartRepository.findOne({
+      filter: { user: userId },
+    });
+
     if (existingCart) {
-      // Check if product already exists in cart
+      // Find product by productId + productSize
       const productIndex = existingCart.products.findIndex(
-        (p) => p.productId.toString() === productId.toString()
+        (p) =>
+          p.productId.toString() === productId.toString() &&
+          p.productSize === data.productSize
       );
+
       if (productIndex !== -1) {
-        // Product exists → increment quantity
-        const newQuantity = existingCart.products[productIndex].quantity + quantity;
-        // Check if still in stock for the new total
+        // Same product & same size → increase quantity
+        const newQuantity =
+          existingCart.products[productIndex].quantity + quantity;
+
         if (!this._productService.instock(product, newQuantity)) {
           throw new BadRequestException('Product not in stock');
         }
+
         existingCart.products[productIndex].quantity = newQuantity;
       } else {
-        // Product not in cart → add new one
+        // Same product but DIFFERENT size → add a new one
         existingCart.products.push({
           productId,
           quantity,
           price: product.finalPrice,
+          productSize: data.productSize,
         });
       }
+
       await existingCart.save();
 
       return {
@@ -49,14 +59,15 @@ export class CartService {
       };
     }
 
-    // If no cart exists → create new one
+    // No cart → create new one
     const newCart = await this._cartRepository.create({
       user: userId,
       products: [
         {
           productId,
           quantity,
-          price: product.price,
+          price: product.finalPrice,
+          productSize: data.productSize,
         },
       ],
     });
@@ -68,14 +79,14 @@ export class CartService {
   }
 
   async updateCart(data: UpdateCartDto, userId: Types.ObjectId) {
-    const { productId, quantity } = data;
+    const { productId, quantity, _id } = data;
     const product = await this._productRepository.findOne({ filter: { _id: productId } });
     if (!product) throw new NotFoundException('Product not found');
     const instock = this._productService.instock(product, quantity!);
     if (!instock) throw new BadRequestException('Product not in stock');
 
     const cart = await this._cartRepository.update({
-      filter: { user: userId, "products.productId": productId },
+      filter: { user: userId, "products._id": _id },
       update: { "products.$.quantity": quantity, "products.$.price": product.finalPrice }
     });
 
@@ -125,6 +136,7 @@ export class CartService {
         thumbnail: product?.thumbnail?.secure_url,
         quantity: item.quantity,
         price: item.price,
+        productSize: item.productSize,
         subtotal: item.price * item.quantity
       };
     });
@@ -139,6 +151,19 @@ export class CartService {
         itemsCount: transformedProducts.length,
       },
       message: 'Cart fetched successfully',
+    };
+  }
+
+  async removeFromCart(productId: Types.ObjectId, userId: Types.ObjectId) {
+    const cart = await this._cartRepository.findOne({ filter: { user: userId } });
+    if (!cart) throw new NotFoundException('Cart not found');
+    const productIndex = cart.products.findIndex((p) => p._id?.toString() === productId.toString());
+    if (productIndex === -1) throw new NotFoundException('Product not found in cart');
+    cart.products.splice(productIndex, 1);
+    await cart.save();
+    return {
+      data: cart,
+      message: 'Product removed from cart successfully',
     };
   }
 

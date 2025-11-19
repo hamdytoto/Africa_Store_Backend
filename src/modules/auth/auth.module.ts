@@ -12,11 +12,12 @@ import { AuthGuard } from 'src/common/guards/authentication.guard';
 import { AuthorizationGuard } from 'src/common/guards/authorization.guard';
 import { ResendMailService } from '../mailer/resend-mail.service';
 import { CartModule } from '../cart/cart.module';
+import { MailService } from '../mail/mail.service';
 
 @Module({
   imports: [UserModule, OtpModel, tokenModel, CartModule],
   controllers: [AuthController],
-  providers: [AuthService, JwtService, OtpRepository, TokenRepository, ResendMailService, {
+  providers: [AuthService, MailService, JwtService, OtpRepository, TokenRepository, ResendMailService, {
     provide: APP_GUARD,  // global 
     useClass: AuthGuard
   }, {

@@ -31,7 +31,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
           },
         },
         defaults: {
-          from: `"Africa Store" <${config.get<string>('MAIL_USER')}>`,
+          from: `"Africa Store" <${config.get<string>('MAIL_FROM')}>`,
         },
         template: {
           dir: join(process.cwd(), 'src', 'templates'), // adjusted path

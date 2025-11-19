@@ -37,7 +37,7 @@ export class AuthController {
   @Public()
   @Post("verify_user")
   verifyUser(@Body() data: VerifyUserDto) {
-    return this.authService.verfiyUser(data);
+    return this.authService.verifyUser(data);
   }
   @Public()
   @Post("verify_user/resend")

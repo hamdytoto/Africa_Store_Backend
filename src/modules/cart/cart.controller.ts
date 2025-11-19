@@ -36,4 +36,12 @@ export class CartController {
   async getCart(@CurrentUser('_id') userId: Types.ObjectId) {
     return this.cartService.getCart(userId);
   }
+  @Roles(Role.user)
+  @Delete('/:productId')
+  async removeFromCart(
+    @Param('productId', ObjectIdValidationPipe) productId: Types.ObjectId,
+    @CurrentUser('_id') userId: Types.ObjectId,
+  ) {
+    return this.cartService.removeFromCart(productId, userId);
+  }
 }

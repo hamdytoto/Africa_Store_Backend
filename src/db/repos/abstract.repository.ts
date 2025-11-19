@@ -103,5 +103,15 @@ export abstract class AbstractRepository<TDocument> {
         if (populate) query = query.populate(populate)
         return query.exec();
     }
+    async findOneAndDelete({
+        filter = {},
+        populate,
+        select,
+    }: finderOneArg<TDocument>): Promise<TDocument | null> {
+        let query = this.model.findOneAndDelete(filter);
+        if (select) query = query.select(select);
+        if (populate) query = query.populate(populate);
+        return query.exec();
+    }
 
 }

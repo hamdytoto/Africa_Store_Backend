@@ -77,6 +77,7 @@ async update(
   }
 
   @Get(':id')
+  @Public()
   async findOne(@Param('id', ObjectIdValidationPipe) id: Types.ObjectId) {
     return this.productService.findOne(id);
   }
